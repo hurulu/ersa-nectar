@@ -1,0 +1,1188 @@
+
+TWiki> Systems Web>NeCTARStage1InstallationGuide-ManualInstallation (2013-06-07, lzhang? )EditAttach
+
+    How to set up a HA NeCTAR node with openstack(grizzly) step by step.
+        Architecture
+        cloud on kvm
+        Dns server
+        Keystone (for test only to simulate the national keystone)
+        Glance (for test only to simulate the national glance)
+        Openstack Dashboard(for test only to simulate the national dashboard)
+        Nova Api-cell (for test only to simulate the national top level api-cell)
+        Loadbalacing cluster (lvs+keepalived, SA production)
+        Mariadb Galera cluster (HA mysql )
+        Rabbitmq Cluster(SA Production)
+        Nova Child Cell (SA Prodcution)
+        Nova Compute (SA Production)
+        Swift load-balancer(SA Production)
+        Swift proxy cluster
+        Swift storage
+        Monitoring server(ganglia, nagios ...) 
+
+How to set up a HA NeCTAR? node with openstack(grizzly) step by step.
+Architecture
+cloud on kvm
+Find a server installed with basic Ubuntu 12.04 OS and libvirt-bin. Create two kvm networks for openstack and management:
+
+cat /etc/libvirt/qemu/networks/openstack.xml
+<network>
+  <name>openstack</name>
+  <bridge name="openstack" />
+  <forward/>
+  <ip address="192.168.100.1" netmask="255.255.255.0">
+    <dhcp>
+      <range start="192.168.100.2" end="192.168.100.254" />
+    </dhcp>
+  </ip>
+</network>
+cat /etc/libvirt/qemu/networks/management.xml 
+<network>
+  <name>management</name>
+  <bridge name="management" />
+  <forward/>
+  <ip address="192.168.200.1" netmask="255.255.255.0">
+    <dhcp>
+      <range start="192.168.200.2" end="192.168.200.254" />
+    </dhcp>
+  </ip>
+</network>
+
+
+virsh net-create /etc/libvirt/qemu/networks/openstack.xml
+virsh net-create /etc/libvirt/qemu/networks/management.xml
+
+virsh net-list
+Name                 State      Autostart
+-----------------------------------------
+default              active     yes       
+management           active     no        
+openstack            active     no        
+
+And then prepare a kvm image as the template with the following configurations:
+
+OS:  ubuntu-12.04_amd64_server
+Additional Packages: openssh-server, ifenslave-2.6
+Manage NIC: eth0 using management network with NAT
+Production NIC:eth1 - eth4 using openstack network with NAT
+
+#Bonding eth1-eth4 together as bond0
+echo "bonding" >>/etc/modules
+cat /etc/network/interfaces 
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+        address 192.168.200.254
+        netmask 255.255.255.0
+
+
+auto bond0
+iface bond0 inet static
+        address 192.168.100.254
+        netmask 255.255.255.0
+        gateway 192.168.100.1
+        dns-nameservers 192.168.100.2 192.168.100.1
+        up ifenslave bond0 eth1 eth2 eth3 eth4
+        down ifenslave -d bond0 eth1 eth2 eth3 eth4
+        bond-mode 0
+        bond-miimon 100
+
+reboot
+
+Dns server
+Clone the template and rename it as ns.sa.nectar.org.au and change its IP to 192.168.100.2, 192.168.200.2
+
+cat /etc/network/interfaces
+
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+        address 192.168.200.2
+        netmask 255.255.255.0
+
+auto bond0
+iface bond0 inet static
+        address 192.168.100.2
+        netmask 255.255.255.0
+        gateway 192.168.100.1
+        dns-nameservers 192.168.100.2 192.168.100.1
+        up ifenslave bond0 eth1 eth2 eth3 eth4
+        down ifenslave -d bond0 eth1 eth2 eth3 eth4
+        bond-mode 0
+        bond-miimon 100
+
+cat /etc/hostname
+
+ 
+ns.sa.nectar.org.a
+
+Reboot the vm
+
+reboot
+
+Install Bind9
+
+apt-get install bind9
+
+hostname 	Domain name(production) sa.nectar.org.au 	Domain name(management) backend.sa.nectar.org.au
+gateway 	192.168.100.1 	192.168.200.1
+ns 	192.168.100.2 	192.168.200.2
+lb-master 	192.168.100.10 	192.168.200.10
+lb-backup 	192.168.100.11 	192.168.200.11
+swift-lb-master 	192.168.100.12 	192.168.200.12
+swift-lb-backup 	192.168.100.13 	192.168.200.13
+mysql00 	192.168.100.20 	192.168.200.20
+mysql01 	192.168.100.21 	192.168.200.21
+mysql02 	192.168.100.22 	192.168.200.22
+rabbitmq00 	192.168.100.30 	192.168.200.30
+rabbitmq01 	192.168.100.31 	192.168.200.31
+rabbitmq02 	192.168.100.32 	192.168.200.32
+keystone 	192.168.100.40 	192.168.200.40
+glance 	192.168.100.41 	192.168.200.41
+cinder 	192.168.100.42 	192.168.200.42
+dashboard 	192.168.100.43 	192.168.200.43
+api-cell 	192.168.100.44 	192.168.200.44
+sa-cell00 	192.168.100.50 	192.168.200.50
+sa-cell01 	192.168.100.51 	192.168.200.51
+compute00 	192.168.100.60 	192.168.200.60
+compute01 	192.168.100.61 	192.168.200.61
+compute02 	192.168.100.62 	192.168.200.62
+vic-cell00 	192.168.100.70 	192.168.200.70
+vic-cell01 	192.168.100.71 	192.168.200.71
+vic-compute00 	192.168.100.80 	192.168.200.80
+vic-compute01 	192.168.100.81 	192.168.200.81
+vic-compute02 	192.168.100.82 	192.168.200.82
+swift-proxy00 	192.168.100.90 	192.168.200.90
+swift-proxy01 	192.168.100.91 	192.168.200.91
+swift-storage00 	192.168.100.92 	192.168.200.92
+swift-storage01 	192.168.100.93 	192.168.200.93
+swift-storage02 	192.168.100.94 	192.168.200.94
+swift-storage03 	192.168.100.95 	192.168.200.95
+swift-storage04 	192.168.100.96 	192.168.200.96
+
+Configure Bind
+
+echo 'include "/etc/bind/named.conf.nectar";' >>/etc/bind/named.conf
+
+cat /etc/bind/named.conf.nectar
+
+zone "sa.nectar.org.au" {
+        type master;
+        file "/etc/bind/db.sa.nectar.org.au";
+};
+zone "backend.sa.nectar.org.au" {
+        type master;
+        file "/etc/bind/db.backend.sa.nectar.org.au";
+};
+zone "100.168.192.in-addr.arpa" {
+        type master;
+        file "/etc/bind/db.192.168.100";
+};
+zone "200.168.192.in-addr.arpa" {
+        type master;
+        file "/etc/bind/db.192.168.200";
+};
+
+cat /etc/bind/db.sa.nectar.org.au
+
+;
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     sa.nectar.org.au. root.sa.nectar.org.au (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns
+gateway IN      A       192.168.100.1
+ns      IN      A       192.168.100.2
+
+cat /etc/bind/db.backend.sa.nectar.org.au
+
+;
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     backend.sa.nectar.org.au. root.backend.sa.nectar.org.au (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns
+gateway IN      A       192.168.200.1
+ns      IN      A       192.168.200.2
+
+cat /etc/bind/db.192.168.100
+
+;
+; BIND reverse data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     sa.nectar.org.au. root.sa.nectar.org.au. (
+                              1         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.sa.nectar.org.au.
+1       IN      PTR     gateway.sa.nectar.org.au.
+2       IN      PTR     ns.sa.nectar.org.au.
+
+cat /etc/bind/db.192.168.200
+
+;
+; BIND reverse data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     backend.sa.nectar.org.au. root.backend.sa.nectar.org.au. (
+                              1         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.backend.sa.nectar.org.au.
+1       IN      PTR     gateway.backend.sa.nectar.org.au.
+2       IN      PTR     ns.backend.sa.nectar.org.au.
+
+Restart bind9
+
+service bind9 restart
+
+Keystone (for test only to simulate the national keystone)
+Add grizzly source
+
+apt-get install -y ubuntu-cloud-keyring
+echo "deb http://ubuntu-cloud.archive.canonical.com/ubuntu precise-updates/grizzly main" >/etc/apt/sources.list.d/cloud-archive.list
+apt-get -y update
+apt-get -y upgrade
+
+Install ntpd
+
+apt-get install -y ntp
+sed -i 's/server ntp.ubuntu.com/server ntp.ubuntu.com\nserver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Install mysql (set password for root is 'password')
+
+apt-get install -y python-mysqldb mysql-server
+sed -i 's/127.0.0.1/0.0.0.0/g' /etc/mysql/my.cnf
+service mysql restart
+
+Install rabbitmq
+
+apt-get install -y rabbitmq-server
+rabbitmqctl change_password guest password
+
+Install Keystone
+
+echo "CREATE DATABASE keystone;GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+apt-get install -y keystone python-keystone python-keystoneclient
+rm -f /var/lib/keystone/keystone.db
+sed -i 's/^# admin_token = .*/admin_token = password/' /etc/keystone/keystone.conf
+sed -i 's/^# verbose = False/verbose = True/' /etc/keystone/keystone.conf
+sed -i 's/^# debug = False/debug = True/' /etc/keystone/keystone.conf
+sed -i 's/^connection = sqlite.*/connection = mysql:\/\/keystone:'password'@'localhost':3306\/keystone/' /etc/keystone/keystone.conf
+keystone-manage pki_setup
+chown -R keystone:keystone /etc/keystone/*
+service keystone restart
+keystone-manage db_sync
+
+Generate some keystone data:
+
+#!/bin/sh
+ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
+SERVICE_PASSWORD=${SERVICE_PASSWORD:-$ADMIN_PASSWORD}
+export SERVICE_TOKEN="password"
+export SERVICE_ENDPOINT="http://localhost:35357/v2.0"
+SERVICE_TENANT_NAME=${SERVICE_TENANT_NAME:-service}
+
+get_id () {
+    echo `$@ | awk '/ id / { print $4 }'`
+}
+
+# Tenants
+ADMIN_TENANT=$(get_id keystone tenant-create --name=admin)
+SERVICE_TENANT=$(get_id keystone tenant-create --name=$SERVICE_TENANT_NAME)
+DEMO_TENANT=$(get_id keystone tenant-create --name=demo)
+#INVIS_TENANT=$(get_id keystone tenant-create --name=invisible_to_admin)
+
+# Users
+ADMIN_USER=$(get_id keystone user-create --name=admin --pass="$ADMIN_PASSWORD" --email=admin@domain.com)
+DEMO_USER=$(get_id keystone user-create --name=demo --pass="$ADMIN_PASSWORD" --email=demo@domain.com)
+
+# Roles
+ADMIN_ROLE=$(get_id keystone role-create --name=admin)
+KEYSTONEADMIN_ROLE=$(get_id keystone role-create --name=KeystoneAdmin)
+KEYSTONESERVICE_ROLE=$(get_id keystone role-create --name=KeystoneServiceAdmin)
+
+# Add Roles to Users in Tenants
+keystone user-role-add --user-id $ADMIN_USER --role-id $ADMIN_ROLE --tenant-id $ADMIN_TENANT
+keystone user-role-add --user-id $ADMIN_USER --role-id $ADMIN_ROLE --tenant-id $DEMO_TENANT
+keystone user-role-add --user-id $ADMIN_USER --role-id $KEYSTONEADMIN_ROLE --tenant-id $ADMIN_TENANT
+keystone user-role-add --user-id $ADMIN_USER --role-id $KEYSTONESERVICE_ROLE --tenant-id $ADMIN_TENANT
+
+# The Member role is used by Horizon and Swift
+MEMBER_ROLE=$(get_id keystone role-create --name=Member)
+keystone user-role-add --user-id $DEMO_USER --role-id $MEMBER_ROLE --tenant-id $DEMO_TENANT
+keystone user-role-add --user-id $DEMO_USER --role-id $MEMBER_ROLE --tenant-id $INVIS_TENANT
+
+# Configure service users/roles
+NOVA_USER=$(get_id keystone user-create --name=nova --pass="$SERVICE_PASSWORD" --tenant-id $SERVICE_TENANT --email=nova@domain.com)
+keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $NOVA_USER --role-id $ADMIN_ROLE
+
+GLANCE_USER=$(get_id keystone user-create --name=glance --pass="$SERVICE_PASSWORD" --tenant-id $SERVICE_TENANT --email=glance@domain.com)
+keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $GLANCE_USER --role-id $ADMIN_ROLE
+
+SWIFT_USER=$(get_id keystone user-create --name=swift --pass="$SERVICE_PASSWORD" --tenant-id $SERVICE_TENANT --email=swift@domain.com)
+keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $SWIFT_USER --role-id $ADMIN_ROLE
+
+#RESELLER_ROLE=$(get_id keystone role-create --name=ResellerAdmin)
+#keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $NOVA_USER --role-id $RESELLER_ROLE
+
+#QUANTUM_USER=$(get_id keystone user-create --name=quantum --pass="$SERVICE_PASSWORD" --tenant-id $SERVICE_TENANT --email=quantum@domain.com)
+#keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $QUANTUM_USER --role-id $ADMIN_ROLE
+
+CINDER_USER=$(get_id keystone user-create --name=cinder --pass="$SERVICE_PASSWORD" --tenant-id $SERVICE_TENANT --email=cinder@domain.com)
+keystone user-role-add --tenant-id $SERVICE_TENANT --user-id $CINDER_USER --role-id $ADMIN_ROLE
+
+Export keystone ENV
+
+echo "export OS_TENANT_NAME=admin" >>~/.novarc
+echo "export OS_USERNAME=admin" >>~/.novarc
+echo "export OS_PASSWORD=password" >>~/.novarc
+echo "export OS_AUTH_URL='http://localhost:5000/v2.0/'" >>~/.novarc
+echo "export SERVICE_ENDPOINT='http://localhost:35357/v2.0'" >>~/.novarc
+echo "export SERVICE_TOKEN=password" >>~/.novarc
+echo "source ~/.novarc" >>~/.bashrc
+source ~/.novarc
+
+Create endpoints
+
+#!/bin/sh
+#
+# Keystone Endpoints
+#
+# Description: Create Services Endpoints
+
+# Mainly inspired by http://www.hastexo.com/resources/docs/installing-openstack-essex-20121-ubuntu-1204-precise-pangolin
+# Written by Martin Gerhard Loschwitz / Hastexo
+# Modified by Emilien Macchi / StackOps
+#
+# Support: openstack@lists.launchpad.net
+# License: Apache Software License (ASL) 2.0
+#
+
+
+# MySQL definitions
+MYSQL_USER=keystone
+MYSQL_DATABASE=keystone
+MYSQL_HOST=localhost
+MYSQL_PASSWORD=password
+
+# Keystone definitions
+KEYSTONE_REGION=RegionOne
+SERVICE_TOKEN=password
+SERVICE_ENDPOINT="http://localhost:35357/v2.0"
+
+# other definitions
+MASTER="192.168.0.1"
+
+while getopts "u:D:p:m:K:R:E:S:T:vh" opt; do
+  case $opt in
+    u)
+      MYSQL_USER=$OPTARG
+      ;;
+    D)
+      MYSQL_DATABASE=$OPTARG
+      ;;
+    p)
+      MYSQL_PASSWORD=$OPTARG
+      ;;
+    m)
+      MYSQL_HOST=$OPTARG
+      ;;
+    K)
+      MASTER=$OPTARG
+      ;;
+    R)
+      KEYSTONE_REGION=$OPTARG
+      ;;
+    E)
+      export SERVICE_ENDPOINT=$OPTARG
+      ;;
+    S)
+      SWIFT_MASTER=$OPTARG
+      ;;
+    T)
+      export SERVICE_TOKEN=$OPTARG
+      ;;
+    v)
+      set -x
+      ;;
+    h)
+      cat <&2
+      exit 1
+      ;;
+    :)
+      echo "Option -$OPTARG requires an argument" >&2
+      exit 1
+      ;;
+  esac
+done  
+
+if [ -z "$KEYSTONE_REGION" ]; then
+  echo "Keystone region not set. Please set with -R option or set KEYSTONE_REGION variable." >&2
+  missing_args="true"
+fi
+
+if [ -z "$SERVICE_TOKEN" ]; then
+  echo "Keystone service token not set. Please set with -T option or set SERVICE_TOKEN variable." >&2
+  missing_args="true"
+fi
+
+if [ -z "$SERVICE_ENDPOINT" ]; then
+  echo "Keystone service endpoint not set. Please set with -E option or set SERVICE_ENDPOINT variable." >&2
+  missing_args="true"
+fi
+
+if [ -z "$MYSQL_PASSWORD" ]; then
+  echo "MySQL password not set. Please set with -p option or set MYSQL_PASSWORD variable." >&2
+  missing_args="true"
+fi
+
+if [ -n "$missing_args" ]; then
+  exit 1
+fi
+ 
+keystone service-create --name nova --type compute --description 'OpenStack Compute Service'
+keystone service-create --name cinder --type volume --description 'OpenStack Volume Service'
+keystone service-create --name glance --type image --description 'OpenStack Image Service'
+keystone service-create --name swift --type object-store --description 'OpenStack Storage Service'
+keystone service-create --name keystone --type identity --description 'OpenStack Identity'
+keystone service-create --name ec2 --type ec2 --description 'OpenStack EC2 service'
+keystone service-create --name quantum --type network --description 'OpenStack Networking service'
+
+create_endpoint () {
+  case $1 in
+    compute)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://api-cell.sa.nectar.org.au:8774/v2/$(tenant_id)s' --adminurl 'http://api-cell.sa.nectar.org.au:8774/v2/$(tenant_id)s' --internalurl 'http://api-cell.sa.nectar.org.au:8774/v2/$(tenant_id)s'
+    ;;
+    volume)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://cinder.sa.nectar.org.au:8776/v1/$(tenant_id)s' --adminurl 'http://cinder.sa.nectar.org.au:8776/v1/$(tenant_id)s' --internalurl 'http://cinder.sa.nectar.org.au:8776/v1/$(tenant_id)s'
+    ;;
+    image)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://glance.sa.nectar.org.au:9292/v2' --adminurl 'http://glance.sa.nectar.org.au:9292/v2' --internalurl 'http://glance.sa.nectar.org.au:9292/v2'
+    ;;
+    object-store)
+    if [ $SWIFT_MASTER ]; then
+      keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://swift.sa.nectar.org.au:8080/v1/AUTH_$(tenant_id)s' --adminurl 'http://swift.sa.nectar.org.au:8080/v1' --internalurl 'http://swift.sa.nectar.org.au:8080/v1/AUTH_$(tenant_id)s'
+    else
+      keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://swift.sa.nectar.org.au:8080/v1/AUTH_$(tenant_id)s' --adminurl 'http://swift.sa.nectar.org.au:8080/v1' --internalurl 'http://swift.sa.nectar.org.au:8080/v1/AUTH_$(tenant_id)s'
+    fi
+    ;;
+    identity)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://keystone.sa.nectar.org.au:5000/v2.0' --adminurl 'http://keystone.sa.nectar.org.au:35357/v2.0' --internalurl 'http://keystone.sa.nectar.org.au:5000/v2.0'
+    ;;
+    ec2)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://api-cell.sa.nectar.org.au:8773/services/Cloud' --adminurl 'http://api-cell.sa.nectar.org.au:8773/services/Admin' --internalurl 'http://api-cell.sa.nectar.org.au:8773/services/Cloud'
+    ;;
+    network)
+    keystone endpoint-create --region $KEYSTONE_REGION --service-id $2 --publicurl 'http://quantum.sa.nectar.org.au:9696/' --adminurl 'http://quantum.sa.nectar.org.au:9696/' --internalurl 'http://quantum.sa.nectar.org.au:9696/'
+    ;;
+  esac
+}
+
+for i in compute volume image object-store identity ec2; do
+  id=`mysql -h "$MYSQL_HOST" -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -ss -e "SELECT id FROM service WHERE type='"$i"';"` || exit 1
+  create_endpoint $i $id
+done
+
+
+
+Glance (for test only to simulate the national glance)
+Add grizzly source
+
+apt-get install -y ubuntu-cloud-keyring
+echo "deb http://ubuntu-cloud.archive.canonical.com/ubuntu precise-updates/grizzly main" >/etc/apt/sources.list.d/cloud-archive.list
+apt-get -y update
+apt-get -y upgrade
+
+Install ntpd
+
+apt-get install -y ntp
+sed -i 's/server ntp.ubuntu.com/server ntp.ubuntu.com\nserver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Grant privileges to glance on keystone.sa.nectar.org.au
+
+echo "CREATE DATABASE glance;GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%.sa.nectar.org.au' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+
+Install glance
+
+apt-get install -y glance glance-api glance-registry python-glanceclient glance-common python-mysqldb
+rm /var/lib/glance/glance.sqlite
+
+        for i in /etc/glance/glance-api.conf /etc/glance/glance-registry.conf
+        do
+                sed -i 's/^sql_connection =.*/sql_connection = mysql:\/\/glance:'password'@'keystone.sa.nectar.org.au'\/glance/' $i
+                sed -i 's/^admin_tenant_name =.*/admin_tenant_name = service/' $i
+                sed -i 's/^admin_user =.*/admin_user = glance/' $i
+                sed -i 's/^admin_password =.*/admin_password = password/' $i
+                sed -i 's/.*notifier_strategy =.*/notifier_strategy = rabbit/' $i
+                sed -i 's/^rabbit_password =.*/rabbit_password = password/' $i
+                sed -i 's/^rabbit_host =.*/rabbit_host = keystone.sa.nectar.org.au/' $i
+        done
+
+service glance-api restart && service glance-registry restart
+glance-manage db_sync
+
+cat ~/.novarc
+export OS_TENANT_NAME=admin
+export OS_USERNAME=admin
+export OS_PASSWORD=password
+export OS_AUTH_URL='http://keystone.sa.nectar.org.au:5000/v2.0/'
+export SERVICE_ENDPOINT='http://keystone.sa.nectar.org.au:35357/v2.0'
+export SERVICE_TOKEN=password
+
+source ~/.novarc
+
+glance image-create --location http://uec-images.ubuntu.com/releases/12.04/release/ubuntu-12.04-server-cloudimg-amd64-disk1.img --is-public true --disk-format qcow2 --container-format bare --name "Ubuntu"
+glance image-create --location https://launchpad.net/cirros/trunk/0.3.0/+download/cirros-0.3.0-x86_64-disk.img --is-public true --disk-format qcow2 --container-format bare --name "Cirros"
+glance image-list
+
+Openstack Dashboard(for test only to simulate the natver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Install openstack dashboard
+
+apt-get install -y memcached libapache2-mod-wsgi openstack-dashboard
+
+Edit /etc/openstack-dashboard/local_settings.py
+OPENSTACK_HOST = "api-cell.sa.nectar.org.au"
+OPENSTACK_KEYSTONE_URL = "http://keystone.sa.nectar.org.au:5000/v2.0"
+
+and add the following two lines : 
+SWIFT_ENABLED = True
+QUANTUM_ENABLED = False
+
+service apache2 restart
+
+Nova Api-cell (for test only to simulate the national top level api-cell)
+Add grizzly source
+
+apt-get install -y ubuntu-cloud-keyring
+echo "deb http://ubuntu-cloud.archive.canonical.com/ubuntu precise-updates/grizzly main" >/etc/apt/sources.list.d/cloud-archive.list
+apt-get -y update
+apt-get -y upgrade
+
+Install ntpd
+
+apt-get install -y ntp
+sed -i 's/server ntp.ubuntu.com/server ntp.ubuntu.com\nserver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Install mysql (set password for root is 'password')
+
+apt-get install -y python-mysqldb mysql-server
+sed -i 's/127.0.0.1/0.0.0.0/g' /etc/mysql/my.cnf
+service mysql restart
+
+Install rabbitmq
+
+apt-get install -y rabbitmq-server
+rabbitmqctl change_password guest password
+
+Grant privileges to child cells, like sa-cell and vic-cell
+
+echo "CREATE DATABASE nova;GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY 'password';GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'sa-cell.sa.nectar.org.au' IDENTIFIED BY 'password';GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'vic-cell.sa.nectar.org.au' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+
+echo "GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'api-cell.sa.nectar.org.au' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+
+Install api-cell
+
+apt-get install -y nova-api nova-cells
+
+cat /etc/nova/nova.conf
+[DEFAULT]
+lock_path=/var/lock/nova
+state_path=/var/lib/nova
+logdir=/var/log/nova
+rootwrap_config=/etc/nova/rootwrap.conf
+verbose=True
+debug=True
+
+# Cert
+#project_cert_subject=/C=AU/O=NeCTAR/CN=project-ca-%.16s-%s
+#user_cert_subject=/C=AU/O=NeCTAR/CN=%.16s-%.16s-%s
+
+# API server
+api_paste_config=/etc/nova/api-paste.ini
+enabled_apis=ec2,osapi_compute
+osapi_compute_workers=4
+ec2_workers=4
+osapi_volume_workers=4
+#volume_api_class=nova.volume.cinder.API
+
+# Cells class overrides
+compute_api_class=nova.compute.cells_api.ComputeCellsAPI
+securitygroup_api_class=nova.compute.cells_api.SecurityGroupCellsAPI
+stub_floating_ips_api=True
+
+# Authentication
+#keystone_ec2_url = http://keystone.sa.nectar.org.au:5000/v2.0/ec2tokens
+auth_strategy=keystone
+keystone_auth_url=http://keystone.sa.nectar.org.au:5000/v2.0
+
+# Image Service
+image_service=nova.image.glance.GlanceImageService
+glance_api_servers=glance.sa.nectar.org.au:9292
+
+# Storage Service
+s3_host=swift.sa.nectar.org.au
+s3_dmz=swift.sa.nectar.org.au
+s3_port=8888
+
+# RabbitMQ
+rabbit_hosts=api-cell.sa.nectar.org.au
+#rabbit_userid=<%= cell_config['rabbit_user'] %>
+rabbit_password=password
+rabbit_virtual_host=/
+
+# Database
+sql_connection=mysql://nova:password@api-cell.sa.nectar.org.au/nova
+
+# Quota
+quota_instances=10
+quota_cores=10
+quota_ram=8192
+quota_volumes=0
+quota_gigabytes=0
+quota_floating_ips=0
+max_age = 600
+until_refresh = 100
+
+
+[cells]
+enable=true
+name=api
+#instance_update_interval=5
+#capabilities=['hypervisor=qemu', 'os=linux']
+#call_timeout=10
+reserve_percent=0.0
+
+[keystone_authtoken]
+auth_host = keystone.sa.nectar.org.au
+auth_port = 35357
+auth_protocol = http
+admin_tenant_name = service
+admin_user = nova
+admin_password = password
+signing_dirname = /tmp/keystone-signing-nova
+
+
+
+Edit /etc/nova/api-paste.ini filter:authtoken section as below:
+[filter:authtoken]
+paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
+auth_host = keystone.sa.nectar.org.au
+auth_port = 35357
+auth_protocol = http
+admin_tenant_name = service
+admin_user = nova
+admin_password = password
+signing_dir = /tmp/keystone-signing-nova
+# Workaround for https://bugs.launchpad.net/nova/+bug/1154809
+auth_version = v2.0
+
+service nova-api stop
+service nova-cells stop
+nova-manage db sync
+service nova-api star    state BACKUP
+#   state MASTER
+    interface eth0
+    virtual_router_id 51
+    priority 100
+    nopreempt       # When the master is up again, it will not take over the backup server. This results in less switching between the master and the backup server, which will have less impact on continuity of the Virtual IP. 
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.100.15
+    }
+}
+virtual_server 192.168.100.15 3306 { 
+    delay_loop 6
+    lb_algo rr  #Round Robin
+    lb_kind DR # Direct Routing
+    nat_mask 255.255.255.0
+    protocol TCP
+
+    real_server 192.168.100.20 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }
+    real_server 192.168.100.21 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }  
+    real_server 192.168.100.22 3306 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }  
+}
+
+virtual_server 192.168.100.15 5672 { 
+    delay_loop 6
+    lb_algo rr  #Round Robin
+    lb_kind DR # Direct Routing
+    nat_mask 255.255.255.0
+    protocol TCP
+
+    real_server 192.168.100.30 5672 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }
+    real_server 192.168.100.31 5672 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }  
+    real_server 192.168.100.32 5672 {
+        weight 1
+        TCP_CHECK {
+            connect_timeout 3
+        }
+    }  
+}
+
+
+service keepalived restart
+
+On lb-backup the only difference in /etc/keepalived/keepalived.conf is
+
+    priority 100
+#  nopreempt  
+
+Mariadb Galera cluster (HA mysql )
+On all mysql nodes mysql0[012] install mariadb :
+
+apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 0xcbcb082a1bb943db
+echo "deb http://mirror.aarnet.edu.au/pub/MariaDB/repo/5.5/ubuntu precise main" >/etc/apt/sources.list.d/mariadb.list
+apt-get -y update && apt-get -y upgrade
+apt-get install -y mariadb-galera-server galera
+
+On mysql00 edit /etc/mysql/my.cnf under mysqld section
+
+wsrep_cluster_address=gcomm://
+wsrep_provider=/usr/lib/galera/libgalera_smm.so
+binlog_format=ROW
+innodb_autoinc_lock_mode=2
+innodb_locks_unsafe_for_binlog=1
+wsrep_sst_method = rsync
+
+bind-address            = 0.0.0.0
+
+service mysql restart
+
+On mysql01 and mysql02
+
+service mysql stop
+scp mysql00:/etc/mysql/debian.cnf /etc/mysql/
+
+Edit /etc/mysql/my.cnf
+
+wsrep_cluster_address=gcomm://mysql00,mysql01,mysql02
+wsrep_provider=/usr/lib/galera/libgalera_smm.so
+binlog_format=ROW
+innodb_autoinc_lock_mode=2
+innodb_locks_unsafe_for_binlog=1
+wsrep_sst_method = rsync
+
+bind-address            = 0.0.0.0
+
+Restart mysql
+
+service mysql restart
+
+Back to mysql00, change wsrep_cluster_address=gcomm://mysql00,mysql01,mysql02 the same as mysql01 and mysql02
+
+wsrep_cluster_address=gcomm://mysql00,mysql01,mysql02
+
+service mysql restart
+
+Start lvs realserver on all mysql hosts
+
+cat lvs_real.sh
+#!/bin/bash
+#description : start realserver
+VIP=192.168.100.15
+case "$1" in
+start)
+echo " start LVS of REALServer"
+/sbin/ifconfig lo:0 $VIP broadcast $VIP netmask 255.255.255.255 up
+echo "1" >/proc/sys/net/ipv4/conf/lo/arp_ignore
+echo "2" >/proc/sys/net/ipv4/conf/lo/arp_announce
+echo "1" >/proc/sys/net/ipv4/conf/all/arp_ignore
+echo "2" >/proc/sys/net/ipv4/conf/all/arp_announce
+;;
+stop)
+/sbin/ifconfig lo:0 down
+echo "close LVS Directorserver"
+echo "0" >/proc/sys/net/ipv4/conf/lo/arp_ignore
+echo "0" >/proc/sys/net/ipv4/conf/lo/arp_announce
+echo "0" >/proc/sys/net/ipv4/conf/all/arp_ignore
+echo "0" >/proc/sys/net/ipv4/conf/all/arp_announce
+;;
+*)
+echo "Usage: $0 {start|stop}"
+exit 1
+esac
+
+
+
+lvs_real.sh start
+
+Rabbitmq Cluster(SA Production)
+install rabbitmq00,01,02
+
+apt-get update -y && apt-get -y upgrade
+apt-get install -y rabbitmq-server
+
+On rabbitmq01
+
+service rabbitmq-server stop
+scp rabbitmq00:/var/lib/rabbitmq/.erlang.cookie /var/lib/rabbitmq/
+service rabbitmq-server start
+rabbitmqctl stop_app
+rabbitmqctl reset
+rabbitmqctl cluster rabbit@rabbitmq00 rabbit@rabbitmq01   #both node will act as disk and ram nodes
+rdisk and ram nodes
+rabbitmqctl start_app
+
+Set password for guest on any rabbitmq host.
+
+rabbitmqctl change_password guest password
+
+Start lvs realserver on all rabbitmq hosts
+
+cat lvs_real.sh
+#!/bin/bash
+#description : start realserver
+VIP=192.168.100.15
+case "$1" in
+start)
+echo " start LVS of REALServer"
+/sbin/ifconfig lo:0 $VIP broadcast $VIP netmask 255.255.255.255 up
+echo "1" >/proc/sys/net/ipv4/conf/lo/arp_ignore
+echo "2" >/proc/sys/net/ipv4/conf/lo/arp_announce
+echo "1" >/proc/sys/net/ipv4/conf/all/arp_ignore
+echo "2" >/proc/sys/net/ipv4/conf/all/arp_announce
+;;
+stop)
+/sbin/ifconfig lo:0 down
+echo "close LVS Directorserver"
+echo "0" >/proc/sys/net/ipv4/conf/lo/arp_ignore
+echo "0" >/proc/sys/net/ipv4/conf/lo/arp_announce
+echo "0" >/proc/sys/net/ipv4/conf/all/arp_ignore
+echo "0" >/proc/sys/net/ipv4/conf/all/arp_announce
+;;
+*)
+echo "Usage: $0 {start|stop}"
+exit 1
+esac
+
+
+
+lvs_real.sh start
+
+Nova Child Cell (SA Prodcution)
+add grizzly source
+
+apt-get install -y ubuntu-cloud-keyring
+echo "deb http://ubuntu-cloud.archive.canonical.com/ubuntu precise-updates/grizzly main" >/etc/apt/sources.list.d/cloud-archive.list
+apt-get -y update
+apt-get -y upgrade
+
+Install ntpd
+
+apt-get install -y ntp
+sed -i 's/server ntp.ubuntu.com/server ntp.ubuntu.com\nserver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Install child-cell
+
+apt-get install -y nova-cells nova-conductor nova-scheduler
+
+vim /etc/nova/nova.conf
+
+[DEFAULT]
+lock_path=/var/lock/nova
+state_path=/var/lib/nova
+logdir=/var/log/nova
+rootwrap_config=/etc/nova/rootwrap.conf
+verbose=True
+debug=True
+
+# Cert
+#project_cert_subject=/C=AU/O=NeCTAR/CN=project-ca-%.16s-%s
+#user_cert_subject=/C=AU/O=NeCTAR/CN=%.16s-%.16s-%s
+# Scheduler
+compute_scheduler_driver=nova.scheduler.filter_scheduler.FilterScheduler
+ram_allocation_ratio=1.0
+cpu_allocation_ratio=1.0
+#reserved_host_memory_mb=1024
+#reserved_host_disk_mb=0
+scheduler_default_filters=RetryFilter,AggregateInstanceExtraSpecsFilter,RamFilter,CoreFilter,ComputeFilter
+compute_fill_first_cost_fn_weight=-1.0
+
+# Network
+network_manager=nova.network.manager.FlatDHCPManager
+
+#Cinder
+volume_api_class=nova.volume.cinder.API
+enabled_apis=ec2,osapi_compute,metadata
+#osapi_volume_listen=cinder.sa.nectar.org.au
+#osapi_volume_listen_port=8776
+
+# Authentication
+#keystone_ec2_url = http://keystone.sa,nectar.org.au:5000/v2.0/ec2tokens
+auth_strategy=keystone
+keystone_auth_url=http://keystone.sa.nectar.org.au:5000/v2.0
+
+# Image Service
+image_service=nova.image.glance.GlanceImageService
+glance_api_servers=glance.nectar.org.au:9292
+
+# Storage Service
+s3_host=swift.sa.nectar.org.au
+s3_dmz=swift.sa.nectar.org.au
+s3_port=8888
+
+# RabbitMQ
+rabbit_hosts=rabbitmq.sa.nectar.org.au
+#rabbit_userid=<%= cell_config['rabbit_user'] %>
+rabbit_password=password
+rabbit_virtual_host=/
+
+# Database
+sql_connection=mysql://nova:password@mysql.sa.nectar.org.au/nova
+
+quota_driver=nova.quota.NoopQuotaDriver
+[cells]
+enable=true
+name=sa-cell00
+instance_update_interval=5
+reserve_percent=0.0
+
+/etc/nova/api-paste.ini
+
+[filter:authtoken]
+paste.filter_factory = keystoneclient.middleware.auth_token:filter_factory
+auth_host = keystone.sa.nectar.org.au
+auth_port = 35357
+auth_protocol = http
+admin_tenant_name = service
+admin_user = nova
+admin_password = password
+signing_dir = /tmp/keystone-signing-nova
+# Workaround for https://bugs.launchpad.net/nova/+bug/1154809
+auth_version = v2.0
+
+Create nova database on mysql.sa.nectar.org.au
+
+echo "CREATE DATABASE nova;GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'sa-cell00.sa.nectar.org.au' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+
+Create nova tables
+
+service nova-cells stop
+service nova-scheduler stop
+service nova-conductor stop
+nova-manage db sync (Ensure there is only one mysql node running, otherwise it will result different flavor ID in instance_types between mysql database for api-cell and child-cell. So db sync first then cluster the mysql nodes.)
+service nova-cells start
+service nova-scheduler start
+service nova-conductor start
+
+Connect child cells to api-cell
+
+on api-cell.sa.nectar.org.au ruau --port=5672 --virtual_host=/ --woffset=1.0 --wscale=1.0
+
+Upgrade packages(otherwise will have "Remote error: UnsupportedRpcVersion? Specified RPC version, 1.47, not supported by this endpoint" on additional compute nodes)
+
+apt-get -y upgrade
+
+Nova Compute (SA Production)
+add grizzly source
+
+apt-get install -y ubuntu-cloud-keyring
+echo "deb http://ubuntu-cloud.archive.canonical.com/ubuntu precise-updates/grizzly main" >/etc/apt/sources.list.d/cloud-archive.list
+apt-get -y update
+apt-get -y upgrade
+
+Install ntpd
+
+apt-get install -y ntp
+sed -i 's/server ntp.ubuntu.com/server ntp.ubuntu.com\nserver 127.127.1.0\nfudge 127.127.1.0 stratum 10/g' /etc/ntp.conf
+service ntp restart
+
+Set rp_filter
+
+sed -i 's/^#net.ipv4.conf.all.rp_filter=1/net.ipv4.conf.all.rp_filter=0/' /etc/sysctl.conf
+sed -i 's/^#net.ipv4.conf.default.rp_filter=1/net.ipv4.conf.default.rp_filter=0/' /etc/sysctl.conf
+sysctl -w net.ipv4.conf.all.rp_filter=0
+sysctl -w net.ipv4.conf.default.rp_filter=0
+
+Grant nova privileges on mysql.sa.nectar.org.au
+
+echo "GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%.sa.nectar.org.au' IDENTIFIED BY 'password';FLUSH PRIVILEGES;"|mysql -uroot -ppassword
+
+Install nova packages
+
+# In a real production environment that support kvm, install nova-compute-kvm instead.
+apt-get install -y nova-compute-qemu nova-network nova-novncproxy novnc nova-api
+
+Destroy default kvm networks
+
+virsh net-destroy default
+virsh net-undefine default
+
+Edit /etc/nova/nova.conf
+
+[DEFAULT]
+verbose=True
+debug=True
+dhcpbridge_flagfile=/etc/nova/nova.conf
+dhcpbridge=/usr/bin/nova-dhcpbridge
+logdir=/var/log/nova
+state_path=/var/lib/nova
+lock_path=/var/lock/nova
+force_dhcp_release=True
+iscsi_helper=tgtadm
+#libvirt_use_virtio_for_bridges=True   when this set to True, Instances hang at tun: (C) 1999-2004 Max Krasnyansky , syslog shows 'br100: port 2(vnet0) entered disabled state'
+# libvirt.log shows 'internal error ifname "vnet0" not in key map. Unable to get index for interface vnet0: No such device'
+libvirt_use_virtio_for_bridges=False
+connection_type=libvirt
+root_helper=sudo nova-rootwrap /etc/nova/rootwrap.conf
+verbose=True
+ec2_private_dns_show_ip=True
+#api_paste_config=/etc/nova/api-paste.ini
+volumes_path=/var/lib/nova/volumes
+
+#Add this to the /etc/nova/nova.conf
+rootwrap_config=/etc/nova/rootwrap.conf
+
+# SCHEDULER
+compute_scheduler_driver=nova.scheduler.filter_scheduler.FilterScheduler
+
+# VOLUMES
+#volume_driver=nova.volume.driver.ISCSIDriver
+#volume_group=nova-volumes
+#volume_name_template=volume-%s
+#iscsi_helper=tgtadm
+#Cinder
+volume_api_class=nova.volume.cinder.API
+enabled_apis=ec2,osapi_compute,metadata
+osapi_volume_listen=cinder.sa.nectar.org.au
+osapi_volume_listen_port=8776
+
+# DATABASE
+sql_connection=mysql://nova:password@mysql.sa.nectar.org.au/nova
+#manager=nova.conductor.manager.ConductorManager
+
+# COMPUTE
+libvirt_type=qemu
+compute_driver=libvirt.LibvirtDriver
+instance_name_template=instance-%08x
+api_paste_config=/etc/nova/api-paste.ini
+
+# COMPUTE/APIS: if you have separate configs for separate services
+# this flag is required for both nova-api and nova-compute
+allow_resize_to_same_host=True
+
+# RABBITMQ
+rabbit_host=rabbitmq.sa.nectar.org.au
+rabbit_password=password
+
+# GLANCE
+image_service=nova.image.glance.GlanceImageService
+glance_api_servers=glance.sa.nectar.org.au:9292
+
+# NETWORK
+network_manager=nova.network.manager.FlatDHCPManager
+force_dhcp_release=True
+dhcpbridge_flagfile=/etc/nova/nova.conf
+firewall_driver=nova.virt.libvirt.firewall.IptablesFirewallDriver
+# Change my_ip to match each host
+my_ip=192.168.100.60
+public_interface=bond0
+vlan_interface=bond0
+flat_network_bridge=br100
+flat_interface=bond0
+fixed_range=192.168.0.0/24
+multi_host=True
+#node_availability_zone=sa
+#auto_assign_floating_ip=True
+
+# NOVNC CONSOLE
+novncproxy_base_url=http://192.168.100.60:6080/vnc_auto.html
+# Change vncserver_proxyclient_address and vncserver_listen to match each compute host
+vncserver_proxyclient_address=192.168.100.60
+vncserver_listen=192.168.100.60
+
+
+[cells]
+enable=true
+name=sa-cell00
+instance_update_interval=5
+
+Edit /etc/nova/api-paster.ini
+
+[filter:authtoken]
+pova services
+
+for i in api compute network novncproxy; do service nova-$i restart; done
+
+Create nova network(when running this command on sa-cell, it fails with error like NetworkNotCreated? : --bridge is required to create a network, it probably because on sa-cell there is no bridge_interface configured in nova.conf )
+
+nova-manage network create private --fixed_range_v4=192.168.0.0/24 --bridge_interface=br100 --num_networks=1 --multi_host=T --network_size=256
+
+Install additional nova-compute nodes
+
+Expect that in nova.conf, this key should have its own compute node IP. all other steps are the same as the first compute node installation. Also, do not create nova network. 
+my_ip=
+novncproxy_base_url=
+vncserver_proxyclient_address=
+vncserver_listen=
+
+Swift load-balancer(SA Production)
+Swift proxy cluster
+Swift storage
+Monitoring server(ganglia, nagios ...)

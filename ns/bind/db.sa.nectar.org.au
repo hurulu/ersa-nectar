@@ -1,0 +1,57 @@
+;
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     sa.nectar.org.au. root.sa.nectar.org.au (
+                              2         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns
+gateway IN      A       192.168.100.1
+ns      IN      A       192.168.100.2
+puppet-master      IN      A       192.168.100.3
+lb-master      IN      A       192.168.100.10
+lb-backup      IN      A       192.168.100.11
+lb      IN      A       192.168.100.15
+swift-lb-master      IN      A       192.168.100.12
+swift-lb-backup      IN      A       192.168.100.13
+swift-lb      IN      A       192.168.100.16
+mysql00      IN      A       192.168.100.20
+mysql01      IN      A       192.168.100.21
+mysql02      IN      A       192.168.100.22
+mysql      IN      CNAME       lb
+rabbitmq00      IN      A       192.168.100.30
+rabbitmq01      IN      A       192.168.100.31
+rabbitmq02      IN      A       192.168.100.32
+rabbitmq      IN      CNAME	lb
+keystone      IN      A       192.168.100.40
+glance      IN      A       192.168.100.41
+cinder      IN      A       192.168.100.42
+dashboard      IN      A       192.168.100.43
+api-cell      IN      A       192.168.100.44
+sa-cell00      IN      A       192.168.100.50
+sa-cell01      IN      A       192.168.100.51
+compute00      IN      A       192.168.100.60
+compute01      IN      A       192.168.100.61
+compute02      IN      A       192.168.100.62
+vic-cell00      IN      A       192.168.100.70
+vic-cell01      IN      A       192.168.100.71
+vic-compute00      IN      A       192.168.100.80
+vic-compute01      IN      A       192.168.100.81
+vic-compute02      IN      A       192.168.100.82
+swift      IN      CNAME	swift-proxy01
+swift-proxy00      IN      A       192.168.100.90
+swift-proxy01      IN      A       192.168.100.91
+swift-storage00      IN      A       192.168.100.92
+swift-storage01      IN      A       192.168.100.93
+swift-storage02      IN      A       192.168.100.94
+swift-storage03      IN      A       192.168.100.95
+swift-storage04      IN      A       192.168.100.96
+firewall-test-host      IN      A       192.168.100.100
+
+
+
+

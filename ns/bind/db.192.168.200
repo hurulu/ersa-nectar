@@ -1,0 +1,52 @@
+;
+; BIND reverse data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     backend.sa.nectar.org.au. root.backend.sa.nectar.org.au. (
+                              1         ; Serial
+                         604800         ; Refresh
+                          86400         ; Retry
+                        2419200         ; Expire
+                         604800 )       ; Negative Cache TTL
+;
+@       IN      NS      ns.backend.sa.nectar.org.au.
+1       IN      PTR     gateway.backend.sa.nectar.org.au.
+2       IN      PTR     ns.backend.sa.nectar.org.au.
+3       IN      PTR     puppet-master.backend.sa.nectar.org.au.
+10       IN      PTR     lb-master.backend.sa.nectar.org.au.
+11       IN      PTR     lb-backup.backend.sa.nectar.org.au.
+12       IN      PTR     swift-lb-master.backend.sa.nectar.org.au.
+13       IN      PTR     swift-lb-backup.backend.sa.nectar.org.au.
+15       IN      PTR     lb.backend.sa.nectar.org.au.
+16       IN      PTR     swift-lb.backend.sa.nectar.org.au.
+20       IN      PTR     mysql00.backend.sa.nectar.org.au.
+21       IN      PTR     mysql01.backend.sa.nectar.org.au.
+22       IN      PTR     mysql02.backend.sa.nectar.org.au.
+25       IN      PTR     mysql.backend.sa.nectar.org.au.
+30       IN      PTR     rabbitmq00.backend.sa.nectar.org.au.
+31       IN      PTR     rabbitmq01.backend.sa.nectar.org.au.
+32       IN      PTR     rabbitmq02.backend.sa.nectar.org.au.
+35       IN      PTR     rabbitmq.backend.sa.nectar.org.au.
+40       IN      PTR     keystone.backend.sa.nectar.org.au.
+41       IN      PTR     glance.backend.sa.nectar.org.au.
+42       IN      PTR     cinder.backend.sa.nectar.org.au.
+43       IN      PTR     dashboard.backend.sa.nectar.org.au.
+44       IN      PTR     api-cell.backend.sa.nectar.org.au.
+50       IN      PTR     sa-cell00.backend.sa.nectar.org.au.
+51       IN      PTR     sa-cell01.backend.sa.nectar.org.au.
+60       IN      PTR     compute00.backend.sa.nectar.org.au.
+61       IN      PTR     compute01.backend.sa.nectar.org.au.
+62       IN      PTR     compute02.backend.sa.nectar.org.au.
+70       IN      PTR     vic-cell00.backend.sa.nectar.org.au.
+71       IN      PTR     vic-cell01.backend.sa.nectar.org.au.
+80       IN      PTR     vic-compute00.backend.sa.nectar.org.au.
+81       IN      PTR     vic-compute01.backend.sa.nectar.org.au.
+82       IN      PTR     vic-compute02.backend.sa.nectar.org.au.
+90       IN      PTR     swift-proxy00.backend.sa.nectar.org.au.
+91       IN      PTR     swift-proxy01.backend.sa.nectar.org.au.
+92       IN      PTR     swift-storage00.backend.sa.nectar.org.au.
+93       IN      PTR     swift-storage01.backend.sa.nectar.org.au.
+94       IN      PTR     swift-storage02.backend.sa.nectar.org.au.
+95       IN      PTR     swift-storage03.backend.sa.nectar.org.au.
+96       IN      PTR     swift-storage04.backend.sa.nectar.org.au.
+
