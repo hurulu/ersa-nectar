@@ -1,0 +1,9 @@
+#!/bin/bash
+
+IP_ADDR=<%=@ipaddress %>
+MASTER_IP=<%=@master_ip %>
+echo $IP_ADDR >/tmp/result
+echo $MASTER_IP >>/tmp/result
+<% devs.each do |val| -%>
+echo <%= val %> >>/tmp/result
+<% end -%>
